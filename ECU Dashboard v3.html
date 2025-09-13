@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Turbo Performance Dashboard — Plotly</title>
+  <!-- Latest Plotly.js CDN -->
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #151924;
+      --text: #e8ecf1;
+      --muted: #9aa7b2;
+      --accent: #3ea6ff;
+      --ok: #2ecc71;
+      --warn: #f39c12;
+      --bad: #e74c3c;
+      --grid-gap: 14px;
+    }
+    html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+    .wrap { max-width: 1550px; margin: 0 auto; padding: 18px; }
+    h1 { font-size: 20px; margin: 0 0 14px; font-weight: 600; }
+    .controls { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 14px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .uploader, .filters, .playback, .advfilters { background: var(--panel); border: 1px solid #2b3344; border-radius: 12px; padding: 12px; }
+    .dropzone { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .dropzone input[type="file"] { display: none; }
+    .btn { background: #1d2330; color: var(--text); border: 1px solid #2b3344; border-radius: 10px; padding: 8px 12px; cursor: pointer; font-weight: 600; }
+    .btn:hover { border-color: #3a465e; }
+    .hint { color: var(--muted); font-size: 12px; }
+    .grid { display: grid; gap: var(--grid-gap); grid-template-columns: 1fr; grid-auto-rows: minmax(240px, auto); }
+    @media (min-width: 1100px){ .grid { grid-template-columns: 1fr 1fr; } }
+    .card { background: var(--panel); border: 1px solid #2b3344; border-radius: 12px; padding: 10px; min-height: 240px; }
+    .meta { display: grid; gap: 6px; grid-template-columns: repeat(6, minmax(110px, 1fr)); }
+    .tag { background: #1d2330; border: 1px solid #2b3344; border-radius: 8px; padding: 8px; font-size: 12px; }
+    .fieldmap { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--muted); }
+    .flex { display:flex; gap:10px; align-items:center; flex-wrap: wrap; }
+    input[type="number"], select, input[type="text"] { background:#101522; color:var(--text); border:1px solid #2b3344; border-radius:8px; padding:8px 10px; }
+    input[type="checkbox"] { transform: scale(1.15); }
+    input[type="range"] { width: 280px; }
+    .twocol { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .table { width:100%; border-collapse: collapse; font-size: 12px; }
+    .table th, .table td { border: 1px solid #2b3344; padding: 6px 8px; text-align: right; }
+    .table th { text-align: left; background:#101522; }
+    .pill { padding:2px 8px; border-radius:999px; border:1px solid #2b3344; font-size:11px; color:var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Turbo Performance Dashboard — Boost, RPM, AFR, Knock (Plotly)</h1>
+
+    <div class="controls">
+      <!-- Upload -->
+      <div class="uploader">
+        <div class="dropzone" id="dropzone">
+          <label class="btn" for="fileInput">📁 Choose JSON/CSV</label>
+          <input id="fileInput" type="file" accept="application/json,.json,.csv,text/csv" />
+          <span class="hint">Drop a JSON or CSV telemetry file here or click to upload. Large logs supported.</span>
+          <div class="flex">
+            <label class="hint">Max points/trace</label>
+            <input id="maxPoints" type="number" min="2000" step="1000" value="150000" title="Downsample for speed" />
+            <button id="renderBtn" class="btn">Render</button>
+          </div>
+        </div>
+        <div class="fieldmap" id="fieldmap"></div>
+      </div>
+
+      <!-- Filters & options -->
+      <div class="filters row">
+        <div>
+          <div class="flex">
+            <label class="hint">WOT filter</label>
+            <input type="checkbox" id="wotEnable" />
+            <label class="hint">Signal:</label>
+            <select id="wotSignal">
+              <option value="TPS">TPS (%)</option>
+              <option value="Pedal Position">Pedal Position (%)</option>
+              <option value="Boost">Boost (psi > 0)</option>
+            </select>
+            <label class="hint">Threshold</label>
+            <input id="wotThresh" type="number" min="0" max="100" step="1" value="90" />
+            <button id="applyFilter" class="btn">Apply Filter</button>
+          </div>
+          <div class="hint">When enabled, charts focus on high-load sections only (e.g., TPS ≥ threshold or positive boost).</div>
+        </div>
+        <div>
+          <div class="flex">
+            <label class="hint">Gear change markers</label>
+            <input type="checkbox" id="gearMarkers" checked />
+            <label class="hint">Drop %</label>
+            <input id="gearDropPct" type="number" min="2" max="50" step="1" value="12" />
+            <label class="hint">Window (ms)</label>
+            <input id="gearWinMs" type="number" min="20" step="10" value="180" />
+          </div>
+          <div class="hint">Detect gear shifts where RPM drops by the given % within the window.</div>
+        </div>
+      </div>
+
+      <!-- Advanced Filters -->
+      <div class="advfilters">
+        <div class="flex" style="gap:16px; align-items:flex-end; flex-wrap:wrap;">
+          <div>
+            <label class="hint">Enable RPM range</label>
+            <input type="checkbox" id="rpmFilterEn" />
+            <div class="twocol">
+              <div><label class="hint">Min</label><input id="rpmMin" type="number" value="0" /></div>
+              <div><label class="hint">Max</label><input id="rpmMax" type="number" value="9000" /></div>
+            </div>
+          </div>
+          <div>
+            <label class="hint">Enable Boost range (psi)</label>
+            <input type="checkbox" id="boostFilterEn" />
+            <div class="twocol">
+              <div><label class="hint">Min</label><input id="boostMin" type="number" value="-5" step="0.1" /></div>
+              <div><label class="hint">Max</label><input id="boostMax" type="number" value="40" step="0.1" /></div>
+            </div>
+          </div>
+          <div>
+            <label class="hint">Enable AFR range</label>
+            <input type="checkbox" id="afrFilterEn" />
+            <div class="twocol">
+              <div><label class="hint">Min</label><input id="afrMin" type="number" value="9" step="0.1" /></div>
+              <div><label class="hint">Max</label><input id="afrMax" type="number" value="18" step="0.1" /></div>
+            </div>
+          </div>
+          <button id="applyAdv" class="btn">Apply Advanced Filters</button>
+          <span class="hint">Filters are AND-combined with WOT filter.</span>
+        </div>
+      </div>
+
+      <!-- Playback -->
+      <div class="playback">
+        <div class="flex">
+          <button id="playBtn" class="btn">▶ Play</button>
+          <button id="pauseBtn" class="btn">⏸ Pause</button>
+          <label class="hint">Speed</label>
+          <select id="speed">
+            <option value="0.25">0.25×</option>
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="2">2×</option>
+            <option value="4">4×</option>
+          </select>
+          <label class="hint">Time</label>
+          <input type="range" id="scrub" min="0" max="1" step="0.0001" value="0" />
+          <span id="scrubLabel" class="hint">0.000s</span>
+        </div>
+        <div class="hint">Playback moves a vertical cursor across all charts. Drag the slider to scrub.</div>
+      </div>
+    </div>
+
+    <div class="card" id="summaryCard">
+      <div id="status">No file loaded.</div>
+      <div class="meta" id="meta"></div>
+    </div>
+
+    <div class="grid">
+      <div class="card" id="boostChart"></div>
+      <div class="card" id="rpmChart"></div>
+      <div class="card" id="afrChart"></div>
+      <div class="card" id="knockChart"></div>
+    </div>
+
+    <!-- Power & Torque -->
+    <div class="card">
+      <div class="flex" style="justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap;">
+        <div class="flex" style="gap:12px;">
+          <span class="hint">Power/Torque inputs:</span>
+          <span class="pill" id="methodPill">method: auto</span>
+          <label class="hint">BSFC (lb/hp·hr)</label>
+          <input id="bsfc" type="number" step="0.01" value="0.55" />
+          <label class="hint">Drivetrain loss %</label>
+          <input id="dtLoss" type="number" step="1" value="15" />
+          <label class="hint">X-axis</label>
+          <select id="powerXAxis"><option value="time">Time</option><option value="rpm">RPM</option></select>
+          <button id="computePower" class="btn">Compute Power</button>
+        </div>
+        <div id="powerMeta" class="hint"></div>
+      </div>
+      <div id="powerChart" style="height:320px; margin-top:8px;"></div>
+    </div>
+
+    <!-- Custom Plot & Segments -->
+    <div class="card">
+      <div class="flex" style="gap:14px; align-items:flex-end; flex-wrap:wrap;">
+        <div>
+          <label class="hint">Custom variables</label><br/>
+          <select id="varSelect" multiple size="6" style="min-width:220px;"></select>
+        </div>
+        <div class="flex" style="gap:10px; align-items:center;">
+          <label class="hint">Normalize (0-1)</label><input type="checkbox" id="normToggle" />
+          <button id="renderCustom" class="btn">Update Custom Plot</button>
+        </div>
+        <div style="flex:1"></div>
+        <div class="flex" style="gap:10px; align-items:flex-end; flex-wrap:wrap;">
+          <div>
+            <label class="hint">Segment start (s)</label><br/>
+            <input id="segStart" type="number" step="0.001" value="0" />
+          </div>
+          <div>
+            <label class="hint">Segment end (s)</label><br/>
+            <input id="segEnd" type="number" step="0.001" value="0" />
+          </div>
+          <button id="addSeg" class="btn">Add Segment</button>
+          <button id="markStart" class="btn">Mark start ← cursor</button>
+          <button id="markEndAdd" class="btn">Mark end ← cursor & add</button>
+          <button id="clearSeg" class="btn">Clear Segments</button>
+        </div>
+      </div>
+      <div id="customChart" style="height:340px; margin-top:8px;"></div>
+      <div id="segList" class="hint" style="margin:8px 0;">No segments.</div>
+      <div style="overflow:auto;">
+        <table class="table" id="segStats"></table>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // --------------------- Utility ---------------------
+    const FIELD_CANDIDATES = {
+      time: ["RTC", "Time", "Seconds", "t", "RTC_sec"],
+      boost: ["Boost", "Boost PSIG", "Manifold Pressure", "MAP (psi)"],
+      rpm: ["RPM", "Engine RPM"],
+      afr: ["AFR", "Air Fuel Ratio"],
+      targetAfr: ["Target AFR", "Commanded AFR"],
+      knock: ["Knock Retard", "KR", "KnockRetard", "Knock_Retard"],
+      tps: ["TPS", "Throttle", "TPS %", "TB Position", "Pedal Position"],
+      fuelFlow: ["Fuel Flow", "FuelFlow", "Fuel_Flow", "Fuel Rate", "Fuel lb/hr", "Fuel (lb/hr)", "Fuel_lbh"],
+      torque: ["Torque", "Engine Torque", "Trq", "TQ"]
+    };
+
+    const el = id => document.getElementById(id);
+    const statusEl = el('status');
+    const fieldmapEl = el('fieldmap');
+    const metaEl = el('meta');
+
+    function findFieldName(sample, candidates){
+      for (const name of candidates) if (name in sample) return name;
+      const keys = Object.keys(sample);
+      for (const k of keys){
+        const lk = k.toLowerCase();
+        for (const cand of candidates){ if (lk === String(cand).toLowerCase()) return k; }
+      }
+      for (const k of keys){ for (const cand of candidates){ if (k.toLowerCase().includes(String(cand).toLowerCase())) return k; } }
+      return null;
+    }
+    function looksLikeUnitRow(obj){ let unitish=0, total=0; for (const v of Object.values(obj)){ if (typeof v==='string' && /\[.*\]/.test(v)) unitish++; total++; } return unitish > total * 0.2; }
+    function coerceNum(v){ if (v===null||v===undefined||v==="") return null; const n = (typeof v==='number')?v:parseFloat(String(v).replace(/,/g,'')); return Number.isFinite(n)?n:null; }
+    function computeStats(arr){ const nums = arr.filter(Number.isFinite); if (!nums.length) return {count:0,min:null,max:null,mean:null}; let min=nums[0],max=nums[0],sum=0; for (const v of nums){ if(v<min)min=v; if(v>max)max=v; sum+=v; } return {count:nums.length,min,max,mean:sum/nums.length}; }
+    function downsampleIndices(n,maxPoints){ if(!Number.isFinite(n)||n<=0) return []; if(!maxPoints||n<=maxPoints) return Array.from({length:n},(_,i)=>i); const step=n/maxPoints; const idx=[]; for(let i=0;i<n;i+=step) idx.push(Math.floor(i)); if(idx[idx.length-1]!==n-1) idx.push(n-1); return idx; }
+
+    // CSV parser (quoted fields + commas, CRLF/LF)
+    function parseCSV(text){
+      const rows=[]; let i=0, field='', row=[], inQuotes=false;
+      const pushField=()=>{ row.push(field); field=''; };
+      while(i<text.length){
+        const c=text[i++];
+        if(c==='"'){
+          if(inQuotes && text[i]==='"'){ field+='"'; i++; }
+          else { inQuotes=!inQuotes; }
+        } else if(c===',' && !inQuotes){
+          pushField();
+        } else if((c==='\r' || c==='\n') && !inQuotes){
+          if(field!=='' || row.length){ pushField(); rows.push(row); row=[]; }
+          if(c==='\r' && text[i]==='\n') i++;
+        } else {
+          field+=c;
+        }
+      }
+      if(field!=='' || row.length){ pushField(); rows.push(row); }
+      return rows;
+    }
+
+    // --------------------- Global State ---------------------
+    let rawData = null;     // array of objects
+    let mapped = null;      // { time, boost, rpm, afr, targetAfr, knock, tps, fuelFlow, torque }
+    let idxMaster = [];     // master indices after filters + downsample
+
+    // Playback state
+    let isPlaying = false; let playTimer = null; let playT0 = 0; let baseTime = 0; let timeArray = []; let timeMin=0, timeMax=0;
+
+    // Segments state
+    let segments = []; // [{start,end}]
+
+    // Upload handling
+    const fileInput = el('fileInput');
+    const dropzone = el('dropzone');
+    let selectedFile = null;
+
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.style.borderColor='var(--accent)'; });
+    dropzone.addEventListener('dragleave', () => { dropzone.style.borderColor='#2b3344'; });
+    dropzone.addEventListener('drop', e => { e.preventDefault(); dropzone.style.borderColor='#2b3344'; const f=e.dataTransfer.files?.[0]; if(f) handleFile(f); });
+    fileInput.addEventListener('change', e => { const f=e.target.files?.[0]; if(f) handleFile(f); });
+
+    function handleFile(file){ 
+      selectedFile=file; 
+      statusEl.textContent = `Loaded file: ${file.name} (${(file.size/1024/1024).toFixed(2)} MB)`; 
+      fieldmapEl.textContent=''; 
+      metaEl.innerHTML=''; 
+    }
+
+    el('renderBtn').addEventListener('click', async () => { 
+      if(!selectedFile){ 
+        statusEl.textContent='Please select a file first.'; 
+        return; 
+      }
+      
+      statusEl.textContent = 'Processing file...';
+      
+      try {
+        const text = await selectedFile.text();
+        let dataArr = null;
+        
+        // Try JSON first
+        try { 
+          const parsed = JSON.parse(text); 
+          if(Array.isArray(parsed)) {
+            dataArr = parsed; 
+            statusEl.textContent = `Parsed JSON file with ${dataArr.length} records`;
+          } else {
+            throw new Error('JSON not an array'); 
+          }
+        } catch(jsonErr){ 
+          console.log('JSON parse failed, trying CSV:', jsonErr.message);
+          // Try CSV
+          try {
+            const rows = parseCSV(text);
+            if (!rows.length) throw new Error('Empty file');
+            const headers = rows[0];
+            dataArr = rows.slice(1).filter(r=>r.length && r.some(x=>x!==""))
+              .map(r => Object.fromEntries(headers.map((h,i)=>[h, r[i] ?? ""])));
+            statusEl.textContent = `Parsed CSV file with ${dataArr.length} records`;
+          } catch(csvErr) {
+            throw new Error(`Failed to parse as JSON or CSV. JSON error: ${jsonErr.message}. CSV error: ${csvErr.message}`);
+          }
+        }
+        
+        if (!dataArr || !dataArr.length) {
+          throw new Error('No data found in file');
+        }
+        
+        // Skip units row if present
+        if (dataArr.length && looksLikeUnitRow(dataArr[0])) {
+          dataArr = dataArr.slice(1);
+          console.log('Skipped units row');
+        }
+        
+        rawData = dataArr;
+        mapFieldsAndRender();
+      } catch(err){ 
+        console.error('File processing error:', err); 
+        statusEl.textContent = `Error: ${err.message}`; 
+      }
+    });
+
+    function mapFieldsAndRender(){
+      if(!rawData || !rawData.length){ 
+        statusEl.textContent='No data records found.'; 
+        return; 
+      }
+      
+      const sample = rawData.find(r=>r && typeof r==='object') || rawData[0];
+      const timeKey = findFieldName(sample, FIELD_CANDIDATES.time) || Object.keys(sample)[0];
+      const boostKey = findFieldName(sample, FIELD_CANDIDATES.boost);
+      const rpmKey = findFieldName(sample, FIELD_CANDIDATES.rpm);
+      const afrKey = findFieldName(sample, FIELD_CANDIDATES.afr);
+      const targetAfrKey = findFieldName(sample, FIELD_CANDIDATES.targetAfr);
+      const knockKey = findFieldName(sample, FIELD_CANDIDATES.knock);
+      const tpsKey = findFieldName(sample, FIELD_CANDIDATES.tps);
+      const fuelKey = findFieldName(sample, FIELD_CANDIDATES.fuelFlow);
+      const tqKey = findFieldName(sample, FIELD_CANDIDATES.torque);
+
+      fieldmapEl.innerHTML = `Field mapping → time: <b>${timeKey}</b>, boost: <b>${boostKey||'—'}</b>, rpm: <b>${rpmKey||'—'}</b>, AFR: <b>${afrKey||'—'}</b>, Target AFR: <b>${targetAfrKey||'—'}</b>, Knock Retard: <b>${knockKey||'—'}</b>, TPS/Pedal: <b>${tpsKey||'—'}</b>, Fuel Flow: <b>${fuelKey||'—'}</b>, Torque: <b>${tqKey||'—'}</b>`;
+
+      const n = rawData.length;
+      const time = new Array(n), boost=new Array(n), rpm=new Array(n), afr=new Array(n), targ=new Array(n), knock=new Array(n), tps=new Array(n), fuelFlow=new Array(n), torque=new Array(n);
+      for(let i=0;i<n;i++){
+        const row = rawData[i] || {};
+        let t = coerceNum(row[timeKey]); if(!Number.isFinite(t)) t = i*0.01; time[i]=t;
+        boost[i]   = boostKey? coerceNum(row[boostKey]) : null;
+        rpm[i]     = rpmKey? coerceNum(row[rpmKey]) : null;
+        afr[i]     = afrKey? coerceNum(row[afrKey]) : null;
+        targ[i]    = targetAfrKey? coerceNum(row[targetAfrKey]) : null;
+        knock[i]   = knockKey? coerceNum(row[knockKey]) : null;
+        tps[i]     = tpsKey? coerceNum(row[tpsKey]) : null;
+        fuelFlow[i]= fuelKey? coerceNum(row[fuelKey]) : null;
+        torque[i]  = tqKey? coerceNum(row[tqKey]) : null;
+      }
+      mapped = { time, boost, rpm, afr, targetAfr: targ, knock, tps, fuelFlow, torque };
+      populateVarSelect();
+      applyFilterAndRender();
+    }
+
+    function populateVarSelect(){
+      const vs = el('varSelect');
+      vs.innerHTML='';
+      const candidates = [
+        ['boost','Boost'], ['rpm','RPM'], ['afr','AFR'], ['targetAfr','Target AFR'],
+        ['knock','Knock Retard'], ['tps','TPS/Pedal'], ['fuelFlow','Fuel Flow (lb/hr)'], ['torque','Torque (lb·ft)']
+      ];
+      for (const [k,label] of candidates){
+        if (!mapped || !mapped[k] || mapped[k][0]==null) continue;
+        const opt=document.createElement('option'); opt.value=k; opt.textContent=label; vs.appendChild(opt);
+      }
+    }
+
+    // ---------- Filters & Gear markers ----------
+    el('applyFilter').addEventListener('click', applyFilterAndRender);
+    el('applyAdv').addEventListener('click', applyFilterAndRender);
+
+    function applyFilterAndRender(){
+      if(!mapped) return;
+      let baseIdx = Array.from({length: mapped.time.length}, (_,i)=>i);
+      // WOT filter
+      const wotEnabled = el('wotEnable').checked;
+      if (wotEnabled){
+        const sig = el('wotSignal').value; const thr = parseFloat(el('wotThresh').value)||90;
+        baseIdx = baseIdx.filter(i=>{
+          if(sig==='Boost') return Number.isFinite(mapped.boost[i]) && mapped.boost[i] > 0;
+          const v = mapped.tps[i];
+          return Number.isFinite(v) && v >= thr;
+        });
+      }
+      // Advanced ranges (AND)
+      if (el('rpmFilterEn').checked){ const mn=+el('rpmMin').value, mx=+el('rpmMax').value; baseIdx = baseIdx.filter(i=>Number.isFinite(mapped.rpm[i]) && mapped.rpm[i]>=mn && mapped.rpm[i]<=mx); }
+      if (el('boostFilterEn').checked){ const mn=+el('boostMin').value, mx=+el('boostMax').value; baseIdx = baseIdx.filter(i=>Number.isFinite(mapped.boost[i]) && mapped.boost[i]>=mn && mapped.boost[i]<=mx); }
+      if (el('afrFilterEn').checked){ const mn=+el('afrMin').value, mx=+el('afrMax').value; baseIdx = baseIdx.filter(i=>Number.isFinite(mapped.afr[i]) && mapped.afr[i]>=mn && mapped.afr[i]<=mx); }
+
+      // Downsample
+      const maxPoints = parseInt(el('maxPoints').value, 10) || 150000;
+      idxMaster = downsampleIndices(baseIdx.length, maxPoints).map(k=>baseIdx[k]);
+
+      renderAll();
+      updateMeta();
+      setupPlayback();
+    }
+
+    function detectGearChanges(time, rpm){
+      const markers=[]; const dropPct = (parseFloat(el('gearDropPct').value)||12)/100; const win = (parseFloat(el('gearWinMs').value)||180)/1000;
+      for(let i=1;i<time.length;i++){
+        const t0=time[i-1], t1=time[i]; if(!Number.isFinite(t0)||!Number.isFinite(t1)) continue; const dt=t1-t0; if(dt<=0) continue;
+        let j=i; while(j<time.length && (time[j]-time[i])<win) j++;
+        const r0=rpm[i-1], r1=rpm[Math.min(j, rpm.length-1)];
+        if(Number.isFinite(r0) && Number.isFinite(r1) && r1<r0*(1-dropPct)) markers.push(time[i]);
+      }
+      const merged=[]; const minGap=0.2; for(const t of markers){ if(!merged.length || t-merged[merged.length-1]>minGap) merged.push(t); }
+      return merged;
+    }
+
+    function segmentShapes(){
+      return segments.map(s=>({ type:'rect', x0:s.start, x1:s.end, y0:0, y1:1, xref:'x', yref:'paper', fillcolor:'rgba(62,166,255,0.10)', line:{width:0}, _seg:true }));
+    }
+
+    // --------------------- Rendering ---------------------
+    function commonLayout(title,yTitle){
+      return {
+        paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
+        title:{ text:title, font:{ color:'#e8ecf1', size:14 } },
+        xaxis: { title:'Time (s)', showspikes:true, spikemode:'across', spikedash:'dot', spikecolor:'#3ea6ff', spikesnap:'cursor', gridcolor:'#263045', zerolinecolor:'#263045', color:'#9aa7b2' },
+        yaxis: { title:yTitle, gridcolor:'#263045', zerolinecolor:'#263045', color:'#9aa7b2' },
+        margin:{ l:60, r:20, t:30, b:30 },
+        shapes: []
+      };
+    }
+
+    function renderAll(){
+      const n = idxMaster.length; if(!n){ statusEl.textContent='No points after filtering.'; return; }
+      const time = idxMaster.map(i=>mapped.time[i]);
+      const boost = mapped.boost[0]==null?null: idxMaster.map(i=>mapped.boost[i]);
+      const rpm   = mapped.rpm[0]==null?null: idxMaster.map(i=>mapped.rpm[i]);
+      const afr   = mapped.afr[0]==null?null: idxMaster.map(i=>mapped.afr[i]);
+      const targ  = mapped.targetAfr[0]==null?null: idxMaster.map(i=>mapped.targetAfr[i]);
+      const knockPts = (mapped.knock[0]==null)? null : (()=>{ const kx=[],ky=[]; for(let k=0;k<idxMaster.length;k++){ const v=mapped.knock[idxMaster[k]]; if(Number.isFinite(v)&&v>0){ kx.push(time[k]); ky.push(v);} } return {x:kx,y:ky}; })();
+
+      const gearEnabled = el('gearMarkers').checked; const gearTimes = (gearEnabled && rpm)? detectGearChanges(time, rpm): [];
+      const gearShapes = gearTimes.map(t=> ({ type:'line', x0:t, x1:t, y0:0, y1:1, xref:'x', yref:'paper', line:{color:'#888', width:1, dash:'dot'} }));
+      const segs = segmentShapes();
+
+      const shapesCommon = gearShapes.concat(segs);
+
+      // Boost
+      const boostLayout = commonLayout('Boost (psi)','psi'); boostLayout.shapes = shapesCommon.slice();
+      Plotly.react('boostChart', boost? [{ type:'scattergl', mode:'lines', name:'Boost', x:time, y:boost, line:{width:1.6}, hovertemplate:'t=%{x:.3f}s<br>Boost=%{y:.2f} psi<extra></extra>' }] : [], boostLayout, {responsive:true});
+      // RPM
+      const rpmLayout = commonLayout('Engine Speed (RPM)','RPM'); rpmLayout.shapes = shapesCommon.slice();
+      Plotly.react('rpmChart', rpm? [{ type:'scattergl', mode:'lines', name:'RPM', x:time, y:rpm, line:{width:1.6}, hovertemplate:'t=%{x:.3f}s<br>RPM=%{y:.0f}<extra></extra>' }] : [], rpmLayout, {responsive:true});
+      // AFR
+      const afrLayout = commonLayout('Air-Fuel Ratio (AFR)','AFR'); afrLayout.shapes = shapesCommon.slice();
+      const afrTraces = afr? [{ type:'scattergl', mode:'lines', name:'AFR', x:time, y:afr, line:{width:1.6}, hovertemplate:'t=%{x:.3f}s<br>AFR=%{y:.2f}<extra></extra>' }] : [];
+      if (targ) afrTraces.push({ type:'scattergl', mode:'lines', name:'Target AFR', x:time, y:targ, line:{width:1.2, dash:'dot'}, hovertemplate:'t=%{x:.3f}s<br>Target=%{y:.2f}<extra></extra>' });
+      Plotly.react('afrChart', afrTraces, afrLayout, {responsive:true});
+      // Knock
+      const kLayout = commonLayout('Knock Retard (°)','° retard'); kLayout.yaxis.rangemode='tozero'; kLayout.shapes = shapesCommon.slice();
+      Plotly.react('knockChart', knockPts? [{ type:'scattergl', mode:'markers', name:'Knock Retard', x:knockPts.x, y:knockPts.y, marker:{size:6}, hovertemplate:'t=%{x:.3f}s<br>KR=%{y:.2f}°<extra></extra>' }] : [], kLayout, {responsive:true});
+
+      linkXAxes(['boostChart','rpmChart','afrChart','knockChart']);
+
+      timeArray = time; timeMin = time[0]; timeMax = time[time.length-1];
+    }
+
+    function updateMeta(){
+      metaEl.innerHTML='';
+      const addTag=(label,val)=>{ const d=document.createElement('div'); d.className='tag'; d.innerHTML=`<b>${label}:</b> ${val}`; metaEl.appendChild(d); };
+      const get = key => idxMaster.map(i=>mapped[key][i]).filter(Number.isFinite);
+      const t0 = mapped.time[idxMaster[0]]??0; const t1 = mapped.time[idxMaster[idxMaster.length-1]]??0;
+      addTag('Samples', idxMaster.length.toLocaleString());
+      addTag('Time range', `${t0.toFixed(3)}s → ${t1.toFixed(3)}s`);
+      if (mapped.boost[0]!=null){ const s=computeStats(get('boost')); addTag('Peak boost', `${(s.max??0).toFixed(2)} psi`); }
+      if (mapped.rpm[0]!=null){ const s=computeStats(get('rpm')); addTag('Max RPM', `${(s.max??0).toFixed(0)}`); }
+      if (mapped.afr[0]!=null){ const s=computeStats(get('afr')); addTag('AFR min/max', `${(s.min??0).toFixed(2)} / ${(s.max??0).toFixed(2)}`); }
+      if (mapped.knock[0]!=null){ const s=computeStats(get('knock')); addTag('Max Knock Retard', `${(s.max??0).toFixed(2)}°`); }
+    }
+
+    // Sync x-axis across charts
+    function linkXAxes(ids){
+      const charts = ids.map(id=>document.getElementById(id));
+      let busy=false;
+      charts.forEach(src=>{
+        src.on('plotly_relayout', e=>{
+          if(busy) return;
+          if(e['xaxis.range[0]']!==undefined && e['xaxis.range[1]']!==undefined){
+            busy=true; const r0=e['xaxis.range[0]'], r1=e['xaxis.range[1]'];
+            charts.forEach(dst=>{ if(dst!==src) Plotly.relayout(dst, {'xaxis.range':[r0,r1]}); });
+            busy=false;
+          }
+        });
+      });
+    }
+
+    // --------------------- Playback ---------------------
+    const playBtn = el('playBtn'), pauseBtn = el('pauseBtn'), speedSel = el('speed'), scrub = el('scrub'), scrubLabel = el('scrubLabel');
+
+    function setupPlayback(){
+      isPlaying=false; if(playTimer) { clearInterval(playTimer); playTimer=null; }
+      scrub.min=0; scrub.max=1; scrub.step=0.0001; scrub.value=0; scrubLabel.textContent = `${(timeMin??0).toFixed(3)}s`;
+      drawCursor(timeMin);
