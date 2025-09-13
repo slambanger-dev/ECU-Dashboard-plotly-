@@ -124,6 +124,14 @@
               <div><label class="hint">Max</label><input id="afrMax" type="number" value="18" step="0.1" /></div>
             </div>
           </div>
+          <div>
+            <label class="hint">Enable Time range (s)</label>
+            <input type="checkbox" id="timeFilterEn" />
+            <div class="twocol">
+              <div><label class="hint">Min</label><input id="timeMin" type="number" value="0" step="0.1" /></div>
+              <div><label class="hint">Max</label><input id="timeMax" type="number" value="100" step="0.1" /></div>
+            </div>
+          </div>
           <button id="applyAdv" class="btn">Apply Advanced Filters</button>
           <span class="hint">Filters are AND-combined with WOT filter.</span>
         </div>
@@ -384,6 +392,7 @@
       if (el('rpmFilterEn').checked){ const mn=+el('rpmMin').value, mx=+el('rpmMax').value; baseIdx = baseIdx.filter(i=>Number.isFinite(mapped.rpm[i]) && mapped.rpm[i]>=mn && mapped.rpm[i]<=mx); }
       if (el('boostFilterEn').checked){ const mn=+el('boostMin').value, mx=+el('boostMax').value; baseIdx = baseIdx.filter(i=>Number.isFinite(mapped.boost[i]) && mapped.boost[i]>=mn && mapped.boost[i]<=mx); }
       if (el('afrFilterEn').checked){ const mn=+el('afrMin').value, mx=+el('afrMax').value; baseIdx = baseIdx.filter(i=>Number.isFinite(mapped.afr[i]) && mapped.afr[i]>=mn && mapped.afr[i]<=mx); }
+      if (el('timeFilterEn').checked){ const mn=+el('timeMin').value, mx=+el('timeMax').value; baseIdx = baseIdx.filter(i=>Number.isFinite(mapped.time[i]) && mapped.time[i]>=mn && mapped.time[i]<=mx); }
 
       // Downsample
       const maxPoints = parseInt(el('maxPoints').value, 10) || 150000;
